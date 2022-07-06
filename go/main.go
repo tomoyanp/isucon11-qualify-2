@@ -291,6 +291,7 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 	return jiaUserID, 0, nil
 }
 
+// TODO キャッシュ化できる
 func getJIAServiceURL(tx *sqlx.Tx) string {
 	var config Config
 	err := tx.Get(&config, "SELECT * FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
@@ -371,6 +372,7 @@ func postAuthentication(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "invalid JWT payload")
 	}
 
+	// TODO ここだけなのでredisにしても良い
 	_, err = db.Exec("INSERT IGNORE INTO user (`jia_user_id`) VALUES (?)", jiaUserID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
@@ -439,6 +441,24 @@ func getMe(c echo.Context) error {
 	return c.JSON(http.StatusOK, res)
 }
 
+type IsuJoinedIsuCondition struct {
+	IID         int       `db:"i_id" json:"id"`
+	IJIAIsuUUID string    `db:"i_jia_isu_uuid" json:"jia_isu_uuid"`
+	IName       string    `db:"i_name" json:"name"`
+	IImage      []byte    `db:"i_image" json:"-"`
+	ICharacter  string    `db:"i_character" json:"character"`
+	IJIAUserID  string    `db:"i_jia_user_id" json:"-"`
+	ICreatedAt  time.Time `db:"i_created_at" json:"-"`
+	IUpdatedAt  time.Time `db:"i_updated_at" json:"-"`
+	CID         int       `db:"c_id"`
+	CJIAIsuUUID string    `db:"c_jia_isu_uuid"`
+	CTimestamp  time.Time `db:"c_timestamp"`
+	CIsSitting  bool      `db:"c_is_sitting"`
+	CCondition  string    `db:"c_condition"`
+	CMessage    string    `db:"c_message"`
+	CCreatedAt  time.Time `db:"c_created_at"`
+}
+
 // GET /api/isu
 // ISUの一覧を取得
 func getIsuList(c echo.Context) error {
@@ -459,10 +479,11 @@ func getIsuList(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	isuList := []Isu{}
+	// TODO N+1
+	isuList := []IsuJoinedIsuCondition{}
 	err = tx.Select(
 		&isuList,
-		"SELECT * FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
+		"SELECT i.id as i_id, i.jia_isu_uuid as i_jia_isu_uuid, i.name as i_name, i.image as i_image, i.character as i_character, i.jia_user_id as i_jia_user_id, i.created_at as i_created_at, i.updated_at as i_updated_at, c.id as c_id, c.jia_isu_uuid as c_jia_isu_uuid, c.timestamp as c_timestamp, c.is_sitting as c_is_sitting, c.condition as c_condition, c.message as c_message, c.created_at as c_created_at FROM `isu` as i LEFT JOIN `isu_condition` as c ON isu.jia_isu_uuid = isu_condition.jia_isu_uuid WHERE `jia_user_id` = ? ORDER BY `id` `timestamp` DESC",
 		jiaUserID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
@@ -470,46 +491,39 @@ func getIsuList(c echo.Context) error {
 	}
 
 	responseList := []GetIsuListResponse{}
-	for _, isu := range isuList {
-		var lastCondition IsuCondition
-		foundLastCondition := true
-		err = tx.Get(&lastCondition, "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` DESC LIMIT 1",
-			isu.JIAIsuUUID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				foundLastCondition = false
-			} else {
-				c.Logger().Errorf("db error: %v", err)
-				return c.NoContent(http.StatusInternalServerError)
+	var jiaIsuUid string
+	for index, isu := range isuList {
+		if jiaIsuUid != "" {
+			if jiaIsuUid != isu.IJIAIsuUUID || index == (len(isuList)-1) {
+				var formattedCondition *GetIsuConditionResponse
+				if isu.CCondition != "" {
+					conditionLevel, err := calculateConditionLevel(isu.CCondition)
+					if err != nil {
+						c.Logger().Error(err)
+						return c.NoContent(http.StatusInternalServerError)
+					}
+
+					formattedCondition = &GetIsuConditionResponse{
+						JIAIsuUUID:     isu.CJIAIsuUUID,
+						IsuName:        isu.IName,
+						Timestamp:      isu.CTimestamp.Unix(),
+						IsSitting:      isu.CIsSitting,
+						Condition:      isu.CCondition,
+						ConditionLevel: conditionLevel,
+						Message:        isu.CMessage,
+					}
+				}
+
+				res := GetIsuListResponse{
+					ID:                 isu.IID,
+					JIAIsuUUID:         isu.IJIAIsuUUID,
+					Name:               isu.IName,
+					Character:          isu.ICharacter,
+					LatestIsuCondition: formattedCondition}
+				responseList = append(responseList, res)
 			}
+
 		}
-
-		var formattedCondition *GetIsuConditionResponse
-		if foundLastCondition {
-			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
-			if err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-
-			formattedCondition = &GetIsuConditionResponse{
-				JIAIsuUUID:     lastCondition.JIAIsuUUID,
-				IsuName:        isu.Name,
-				Timestamp:      lastCondition.Timestamp.Unix(),
-				IsSitting:      lastCondition.IsSitting,
-				Condition:      lastCondition.Condition,
-				ConditionLevel: conditionLevel,
-				Message:        lastCondition.Message,
-			}
-		}
-
-		res := GetIsuListResponse{
-			ID:                 isu.ID,
-			JIAIsuUUID:         isu.JIAIsuUUID,
-			Name:               isu.Name,
-			Character:          isu.Character,
-			LatestIsuCondition: formattedCondition}
-		responseList = append(responseList, res)
 	}
 
 	err = tx.Commit()
@@ -520,6 +534,87 @@ func getIsuList(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, responseList)
 }
+
+// func getIsuList(c echo.Context) error {
+// 	jiaUserID, errStatusCode, err := getUserIDFromSession(c)
+// 	if err != nil {
+// 		if errStatusCode == http.StatusUnauthorized {
+// 			return c.String(http.StatusUnauthorized, "you are not signed in")
+// 		}
+//
+// 		c.Logger().Error(err)
+// 		return c.NoContent(http.StatusInternalServerError)
+// 	}
+//
+// 	tx, err := db.Beginx()
+// 	if err != nil {
+// 		c.Logger().Errorf("db error: %v", err)
+// 		return c.NoContent(http.StatusInternalServerError)
+// 	}
+// 	defer tx.Rollback()
+//
+// 	// TODO N+1
+// 	isuList := []Isu{}
+// 	err = tx.Select(
+// 		&isuList,
+// 		"SELECT * FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
+// 		jiaUserID)
+// 	if err != nil {
+// 		c.Logger().Errorf("db error: %v", err)
+// 		return c.NoContent(http.StatusInternalServerError)
+// 	}
+//
+// 	responseList := []GetIsuListResponse{}
+// 	for _, isu := range isuList {
+// 		var lastCondition IsuCondition
+// 		foundLastCondition := true
+// 		err = tx.Get(&lastCondition, "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` DESC LIMIT 1",
+// 			isu.JIAIsuUUID)
+// 		if err != nil {
+// 			if errors.Is(err, sql.ErrNoRows) {
+// 				foundLastCondition = false
+// 			} else {
+// 				c.Logger().Errorf("db error: %v", err)
+// 				return c.NoContent(http.StatusInternalServerError)
+// 			}
+// 		}
+//
+// 		var formattedCondition *GetIsuConditionResponse
+// 		if foundLastCondition {
+// 			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
+// 			if err != nil {
+// 				c.Logger().Error(err)
+// 				return c.NoContent(http.StatusInternalServerError)
+// 			}
+//
+// 			formattedCondition = &GetIsuConditionResponse{
+// 				JIAIsuUUID:     lastCondition.JIAIsuUUID,
+// 				IsuName:        isu.Name,
+// 				Timestamp:      lastCondition.Timestamp.Unix(),
+// 				IsSitting:      lastCondition.IsSitting,
+// 				Condition:      lastCondition.Condition,
+// 				ConditionLevel: conditionLevel,
+// 				Message:        lastCondition.Message,
+// 			}
+// 		}
+//
+// 		res := GetIsuListResponse{
+// 			ID:                 isu.ID,
+// 			JIAIsuUUID:         isu.JIAIsuUUID,
+// 			Name:               isu.Name,
+// 			Character:          isu.Character,
+// 			LatestIsuCondition: formattedCondition}
+// 		responseList = append(responseList, res)
+// 	}
+//
+// 	err = tx.Commit()
+// 	if err != nil {
+// 		c.Logger().Errorf("db error: %v", err)
+// 		return c.NoContent(http.StatusInternalServerError)
+// 	}
+//
+// 	return c.JSON(http.StatusOK, responseList)
+// }
 
 // POST /api/isu
 // ISUを登録
@@ -701,6 +796,7 @@ func getIsuIcon(c echo.Context) error {
 	jiaIsuUUID := c.Param("jia_isu_uuid")
 
 	var image []byte
+	// TODO ファイルシステムにしたほうが良いかも
 	err = db.Get(&image, "SELECT `image` FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
 	if err != nil {
@@ -1078,6 +1174,7 @@ func calculateConditionLevel(condition string) (string, error) {
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
 	characterList := []Isu{}
+	// TODO N+1
 	err := db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
@@ -1195,6 +1292,7 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
+	// TODO 場合によってはbulkinsertしても良い
 	for _, cond := range req {
 		timestamp := time.Unix(cond.Timestamp, 0)
 
