@@ -1173,43 +1173,48 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
-	characterList := []Isu{}
+	list := []Isu{}
 	// TODO N+1
-	err := db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
+	err := db.Select(&list, "SELECT * FROM `isu` INNER JOIN (SELECT `character` FROM `isu` GROUP BY `character`) as sub ON isu.`character` = sub.`character`")
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	mp := map[string][]Isu{}
+	jiaIsuUuidList := []string{}
+
+	for _, v := range list {
+		mp[v.Character] = append(mp[v.Character], v)
+		jiaIsuUuidList = append(jiaIsuUuidList, v.JIAIsuUUID)
+	}
+
+	conditionList := []IsuCondition{}
+	err = db.Select(&conditionList,
+		"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` IN (?) ORDER BY timestamp DESC",
+		"{'"+strings.Join(jiaIsuUuidList, "','")+"'}",
+	)
+
+	conditionMp := map[string][]IsuCondition{}
+
+	for _, v := range conditionList {
+		conditionMp[v.JIAIsuUUID] = append(conditionMp[v.JIAIsuUUID], v)
+	}
+
 	res := []TrendResponse{}
 
-	for _, character := range characterList {
-		isuList := []Isu{}
-		err = db.Select(&isuList,
-			"SELECT * FROM `isu` WHERE `character` = ?",
-			character.Character,
-		)
-		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
+	for key := range mp {
 		characterInfoIsuConditions := []*TrendCondition{}
 		characterWarningIsuConditions := []*TrendCondition{}
 		characterCriticalIsuConditions := []*TrendCondition{}
-		for _, isu := range isuList {
-			conditions := []IsuCondition{}
-			err = db.Select(&conditions,
-				"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC",
-				isu.JIAIsuUUID,
-			)
+		for _, isu := range mp[key] {
 			if err != nil {
 				c.Logger().Errorf("db error: %v", err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
 
-			if len(conditions) > 0 {
-				isuLastCondition := conditions[0]
+			if len(conditionMp[isu.JIAIsuUUID]) > 0 {
+				isuLastCondition := conditionMp[isu.JIAIsuUUID][0]
 				conditionLevel, err := calculateConditionLevel(isuLastCondition.Condition)
 				if err != nil {
 					c.Logger().Error(err)
@@ -1242,7 +1247,7 @@ func getTrend(c echo.Context) error {
 		})
 		res = append(res,
 			TrendResponse{
-				Character: character.Character,
+				Character: key,
 				Info:      characterInfoIsuConditions,
 				Warning:   characterWarningIsuConditions,
 				Critical:  characterCriticalIsuConditions,
