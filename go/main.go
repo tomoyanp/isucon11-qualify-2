@@ -533,6 +533,7 @@ func getIsuList(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	sort.Slice(responseList, func(i, j int) bool { return responseList[i].ID < responseList[j].ID })
 	return c.JSON(http.StatusOK, responseList)
 }
 
