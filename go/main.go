@@ -493,69 +493,37 @@ func getIsuList(c echo.Context) error {
 	responseList := []GetIsuListResponse{}
 	var jiaIsuUid string
 	for index, isu := range isuList {
-		if jiaIsuUid != "" {
-			if jiaIsuUid != isu.IJIAIsuUUID {
-				response := isuList[index-1]
+		if index == 0 || jiaIsuUid != isu.IJIAIsuUUID {
+			response := isu
 
-				var formattedCondition *GetIsuConditionResponse
-				if response.CCondition != "" {
-					conditionLevel, err := calculateConditionLevel(response.CCondition)
-					if err != nil {
-						c.Logger().Error(err)
-						return c.NoContent(http.StatusInternalServerError)
-					}
-
-					formattedCondition = &GetIsuConditionResponse{
-						JIAIsuUUID:     response.CJIAIsuUUID,
-						IsuName:        response.IName,
-						Timestamp:      response.CTimestamp.Unix(),
-						IsSitting:      response.CIsSitting,
-						Condition:      response.CCondition,
-						ConditionLevel: conditionLevel,
-						Message:        response.CMessage,
-					}
+			var formattedCondition *GetIsuConditionResponse
+			if response.CCondition != "" {
+				conditionLevel, err := calculateConditionLevel(response.CCondition)
+				if err != nil {
+					c.Logger().Error(err)
+					return c.NoContent(http.StatusInternalServerError)
 				}
 
-				res := GetIsuListResponse{
-					ID:                 response.IID,
-					JIAIsuUUID:         response.IJIAIsuUUID,
-					Name:               response.IName,
-					Character:          response.ICharacter,
-					LatestIsuCondition: formattedCondition}
-				responseList = append(responseList, res)
-			}
-
-			if index == len(isuList)-1 {
-				response := isuList[index]
-
-				var formattedCondition *GetIsuConditionResponse
-				if response.CCondition != "" {
-					conditionLevel, err := calculateConditionLevel(response.CCondition)
-					if err != nil {
-						c.Logger().Error(err)
-						return c.NoContent(http.StatusInternalServerError)
-					}
-
-					formattedCondition = &GetIsuConditionResponse{
-						JIAIsuUUID:     response.CJIAIsuUUID,
-						IsuName:        response.IName,
-						Timestamp:      response.CTimestamp.Unix(),
-						IsSitting:      response.CIsSitting,
-						Condition:      response.CCondition,
-						ConditionLevel: conditionLevel,
-						Message:        response.CMessage,
-					}
+				formattedCondition = &GetIsuConditionResponse{
+					JIAIsuUUID:     response.CJIAIsuUUID,
+					IsuName:        response.IName,
+					Timestamp:      response.CTimestamp.Unix(),
+					IsSitting:      response.CIsSitting,
+					Condition:      response.CCondition,
+					ConditionLevel: conditionLevel,
+					Message:        response.CMessage,
 				}
-
-				res := GetIsuListResponse{
-					ID:                 response.IID,
-					JIAIsuUUID:         response.IJIAIsuUUID,
-					Name:               response.IName,
-					Character:          response.ICharacter,
-					LatestIsuCondition: formattedCondition}
-				responseList = append(responseList, res)
 			}
+
+			res := GetIsuListResponse{
+				ID:                 response.IID,
+				JIAIsuUUID:         response.IJIAIsuUUID,
+				Name:               response.IName,
+				Character:          response.ICharacter,
+				LatestIsuCondition: formattedCondition}
+			responseList = append(responseList, res)
 		}
+
 		jiaIsuUid = isu.IJIAIsuUUID
 	}
 
