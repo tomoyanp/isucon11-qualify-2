@@ -483,7 +483,7 @@ func getIsuList(c echo.Context) error {
 	isuList := []IsuJoinedIsuCondition{}
 	err = tx.Select(
 		&isuList,
-		"SELECT i.id as i_id, i.jia_isu_uuid as i_jia_isu_uuid, i.name as i_name, i.image as i_image, i.character as i_character, i.jia_user_id as i_jia_user_id, i.created_at as i_created_at, i.updated_at as i_updated_at, c.id as c_id, c.jia_isu_uuid as c_jia_isu_uuid, c.timestamp as c_timestamp, c.is_sitting as c_is_sitting, c.condition as c_condition, c.message as c_message, c.created_at as c_created_at FROM `isu` as i LEFT JOIN `isu_condition` as c ON isu.jia_isu_uuid = isu_condition.jia_isu_uuid WHERE `jia_user_id` = ? ORDER BY `id` `timestamp` DESC",
+		"SELECT i.id as i_id, i.jia_isu_uuid as i_jia_isu_uuid, i.name as i_name, i.image as i_image, i.character as i_character, i.jia_user_id as i_jia_user_id, i.created_at as i_created_at, i.updated_at as i_updated_at, c.id as c_id, c.jia_isu_uuid as c_jia_isu_uuid, c.timestamp as c_timestamp, c.is_sitting as c_is_sitting, c.condition as c_condition, c.message as c_message, c.created_at as c_created_at FROM `isu` as i LEFT JOIN `isu_condition` as c ON i.`jia_isu_uuid` = c.`jia_isu_uuid` WHERE `jia_user_id` = ? ORDER BY i.`id`, c.`timestamp` DESC",
 		jiaUserID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
