@@ -493,37 +493,35 @@ func getIsuList(c echo.Context) error {
 	responseList := []GetIsuListResponse{}
 	var jiaIsuUid string
 	for index, isu := range isuList {
-		if jiaIsuUid != "" {
-			if jiaIsuUid != isu.IJIAIsuUUID || index == (len(isuList)-1) {
-				var formattedCondition *GetIsuConditionResponse
-				if isu.CCondition != "" {
-					conditionLevel, err := calculateConditionLevel(isu.CCondition)
-					if err != nil {
-						c.Logger().Error(err)
-						return c.NoContent(http.StatusInternalServerError)
-					}
-
-					formattedCondition = &GetIsuConditionResponse{
-						JIAIsuUUID:     isu.CJIAIsuUUID,
-						IsuName:        isu.IName,
-						Timestamp:      isu.CTimestamp.Unix(),
-						IsSitting:      isu.CIsSitting,
-						Condition:      isu.CCondition,
-						ConditionLevel: conditionLevel,
-						Message:        isu.CMessage,
-					}
+		if index == 0 || jiaIsuUid != isu.IJIAIsuUUID {
+			var formattedCondition *GetIsuConditionResponse
+			if isu.CCondition != "" {
+				conditionLevel, err := calculateConditionLevel(isu.CCondition)
+				if err != nil {
+					c.Logger().Error(err)
+					return c.NoContent(http.StatusInternalServerError)
 				}
 
-				res := GetIsuListResponse{
-					ID:                 isu.IID,
-					JIAIsuUUID:         isu.IJIAIsuUUID,
-					Name:               isu.IName,
-					Character:          isu.ICharacter,
-					LatestIsuCondition: formattedCondition}
-				responseList = append(responseList, res)
+				formattedCondition = &GetIsuConditionResponse{
+					JIAIsuUUID:     isu.CJIAIsuUUID,
+					IsuName:        isu.IName,
+					Timestamp:      isu.CTimestamp.Unix(),
+					IsSitting:      isu.CIsSitting,
+					Condition:      isu.CCondition,
+					ConditionLevel: conditionLevel,
+					Message:        isu.CMessage,
+				}
 			}
 
+			res := GetIsuListResponse{
+				ID:                 isu.IID,
+				JIAIsuUUID:         isu.IJIAIsuUUID,
+				Name:               isu.IName,
+				Character:          isu.ICharacter,
+				LatestIsuCondition: formattedCondition}
+			responseList = append(responseList, res)
 		}
+		jiaIsuUid = isu.IJIAIsuUUID
 	}
 
 	err = tx.Commit()
