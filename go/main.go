@@ -442,21 +442,21 @@ func getMe(c echo.Context) error {
 }
 
 type IsuJoinedIsuCondition struct {
-	IID         int       `db:"i_id" json:"id"`
-	IJIAIsuUUID string    `db:"i_jia_isu_uuid" json:"jia_isu_uuid"`
-	IName       string    `db:"i_name" json:"name"`
-	IImage      []byte    `db:"i_image" json:"-"`
-	ICharacter  string    `db:"i_character" json:"character"`
-	IJIAUserID  string    `db:"i_jia_user_id" json:"-"`
-	ICreatedAt  time.Time `db:"i_created_at" json:"-"`
-	IUpdatedAt  time.Time `db:"i_updated_at" json:"-"`
-	CID         int       `db:"c_id"`
-	CJIAIsuUUID string    `db:"c_jia_isu_uuid"`
-	CTimestamp  time.Time `db:"c_timestamp"`
-	CIsSitting  bool      `db:"c_is_sitting"`
-	CCondition  string    `db:"c_condition"`
-	CMessage    string    `db:"c_message"`
-	CCreatedAt  time.Time `db:"c_created_at"`
+	IID         int            `db:"i_id" json:"id"`
+	IJIAIsuUUID string         `db:"i_jia_isu_uuid" json:"jia_isu_uuid"`
+	IName       string         `db:"i_name" json:"name"`
+	IImage      []byte         `db:"i_image" json:"-"`
+	ICharacter  string         `db:"i_character" json:"character"`
+	IJIAUserID  string         `db:"i_jia_user_id" json:"-"`
+	ICreatedAt  time.Time      `db:"i_created_at" json:"-"`
+	IUpdatedAt  time.Time      `db:"i_updated_at" json:"-"`
+	CID         sql.NullInt64  `db:"c_id"`
+	CJIAIsuUUID sql.NullString `db:"c_jia_isu_uuid"`
+	CTimestamp  sql.NullTime   `db:"c_timestamp"`
+	CIsSitting  sql.NullBool   `db:"c_is_sitting"`
+	CCondition  sql.NullString `db:"c_condition"`
+	CMessage    sql.NullString `db:"c_message"`
+	CCreatedAt  sql.NullTime   `db:"c_created_at"`
 }
 
 // GET /api/isu
@@ -484,7 +484,7 @@ func getIsuList(c echo.Context) error {
 	c.Logger().Error("%v", jiaUserID)
 	err = tx.Select(
 		&isuList,
-		"SELECT i.id as i_id, i.jia_isu_uuid as i_jia_isu_uuid, i.name as i_name, i.image as i_image, i.character as i_character, i.jia_user_id as i_jia_user_id, i.created_at as i_created_at, i.updated_at as i_updated_at, c.id as c_id, c.jia_isu_uuid as c_jia_isu_uuid, c.timestamp as c_timestamp, c.is_sitting as c_is_sitting, c.condition as c_condition, c.message as c_message, c.created_at as c_created_at FROM `isu` as i INNER JOIN `isu_condition` as c ON i.`jia_isu_uuid` = c.`jia_isu_uuid` WHERE `jia_user_id` = ? ORDER BY i.`id` DESC, c.`timestamp` DESC",
+		"SELECT i.id as i_id, i.jia_isu_uuid as i_jia_isu_uuid, i.name as i_name, i.image as i_image, i.character as i_character, i.jia_user_id as i_jia_user_id, i.created_at as i_created_at, i.updated_at as i_updated_at, c.id as c_id, c.jia_isu_uuid as c_jia_isu_uuid, c.timestamp as c_timestamp, c.is_sitting as c_is_sitting, c.condition as c_condition, c.message as c_message, c.created_at as c_created_at FROM `isu` as i LEFT JOIN `isu_condition` as c ON i.`jia_isu_uuid` = c.`jia_isu_uuid` WHERE `jia_user_id` = ? ORDER BY i.`id` DESC, c.`timestamp` DESC",
 		jiaUserID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
@@ -498,21 +498,21 @@ func getIsuList(c echo.Context) error {
 			response := isu
 
 			var formattedCondition *GetIsuConditionResponse
-			if response.CCondition != "" {
-				conditionLevel, err := calculateConditionLevel(response.CCondition)
+			if response.CID.Valid {
+				conditionLevel, err := calculateConditionLevel(response.CCondition.String)
 				if err != nil {
 					c.Logger().Error(err)
 					return c.NoContent(http.StatusInternalServerError)
 				}
 
 				formattedCondition = &GetIsuConditionResponse{
-					JIAIsuUUID:     response.CJIAIsuUUID,
+					JIAIsuUUID:     response.CJIAIsuUUID.String,
 					IsuName:        response.IName,
-					Timestamp:      response.CTimestamp.Unix(),
-					IsSitting:      response.CIsSitting,
-					Condition:      response.CCondition,
+					Timestamp:      response.CTimestamp.Time.Unix(),
+					IsSitting:      response.CIsSitting.Bool,
+					Condition:      response.CCondition.String,
 					ConditionLevel: conditionLevel,
-					Message:        response.CMessage,
+					Message:        response.CMessage.String,
 				}
 			}
 
@@ -546,18 +546,18 @@ func getIsuList(c echo.Context) error {
 // 		if errStatusCode == http.StatusUnauthorized {
 // 			return c.String(http.StatusUnauthorized, "you are not signed in")
 // 		}
-// 
+//
 // 		c.Logger().Error(err)
 // 		return c.NoContent(http.StatusInternalServerError)
 // 	}
-// 
+//
 // 	tx, err := db.Beginx()
 // 	if err != nil {
 // 		c.Logger().Errorf("db error: %v", err)
 // 		return c.NoContent(http.StatusInternalServerError)
 // 	}
 // 	defer tx.Rollback()
-// 
+//
 // 	// TODO N+1
 // 	isuList := []Isu{}
 // 	err = tx.Select(
@@ -568,7 +568,7 @@ func getIsuList(c echo.Context) error {
 // 		c.Logger().Errorf("db error: %v", err)
 // 		return c.NoContent(http.StatusInternalServerError)
 // 	}
-// 
+//
 // 	responseList := []GetIsuListResponse{}
 // 	for _, isu := range isuList {
 // 		var lastCondition IsuCondition
@@ -583,7 +583,7 @@ func getIsuList(c echo.Context) error {
 // 				return c.NoContent(http.StatusInternalServerError)
 // 			}
 // 		}
-// 
+//
 // 		var formattedCondition *GetIsuConditionResponse
 // 		if foundLastCondition {
 // 			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
@@ -591,7 +591,7 @@ func getIsuList(c echo.Context) error {
 // 				c.Logger().Error(err)
 // 				return c.NoContent(http.StatusInternalServerError)
 // 			}
-// 
+//
 // 			formattedCondition = &GetIsuConditionResponse{
 // 				JIAIsuUUID:     lastCondition.JIAIsuUUID,
 // 				IsuName:        isu.Name,
@@ -602,7 +602,7 @@ func getIsuList(c echo.Context) error {
 // 				Message:        lastCondition.Message,
 // 			}
 // 		}
-// 
+//
 // 		res := GetIsuListResponse{
 // 			ID:                 isu.ID,
 // 			JIAIsuUUID:         isu.JIAIsuUUID,
@@ -611,13 +611,13 @@ func getIsuList(c echo.Context) error {
 // 			LatestIsuCondition: formattedCondition}
 // 		responseList = append(responseList, res)
 // 	}
-// 
+//
 // 	err = tx.Commit()
 // 	if err != nil {
 // 		c.Logger().Errorf("db error: %v", err)
 // 		return c.NoContent(http.StatusInternalServerError)
 // 	}
-// 
+//
 // 	c.Logger().Errorf("%v", jiaUserID);
 // 	c.Logger().Errorf("%v", responseList);
 // 	return c.JSON(http.StatusOK, responseList)
@@ -1204,14 +1204,13 @@ func getTrend(c echo.Context) error {
 
 	sql := "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` IN ("
 	for index, v := range jiaIsuUuidList {
-		if index == len(jiaIsuUuidList) - 1 {
+		if index == len(jiaIsuUuidList)-1 {
 			sql += "'" + v + "') ORDER BY timestamp DESC"
 		} else {
 			sql += "'" + v + "',"
 		}
 
 	}
-
 
 	err = db.Select(&conditionList, sql)
 
@@ -1277,8 +1276,6 @@ func getTrend(c echo.Context) error {
 			})
 	}
 
-
-
 	c.Logger().Errorf("%v", res)
 	return c.JSON(http.StatusOK, res)
 }
@@ -1290,9 +1287,9 @@ func getTrend(c echo.Context) error {
 // 		c.Logger().Errorf("db error: %v", err)
 // 		return c.NoContent(http.StatusInternalServerError)
 // 	}
-// 
+//
 // 	res := []TrendResponse{}
-// 
+//
 // 	for _, character := range characterList {
 // 		isuList := []Isu{}
 // 		err = db.Select(&isuList,
@@ -1303,7 +1300,7 @@ func getTrend(c echo.Context) error {
 // 			c.Logger().Errorf("db error: %v", err)
 // 			return c.NoContent(http.StatusInternalServerError)
 // 		}
-// 
+//
 // 		characterInfoIsuConditions := []*TrendCondition{}
 // 		characterWarningIsuConditions := []*TrendCondition{}
 // 		characterCriticalIsuConditions := []*TrendCondition{}
@@ -1317,7 +1314,7 @@ func getTrend(c echo.Context) error {
 // 				c.Logger().Errorf("db error: %v", err)
 // 				return c.NoContent(http.StatusInternalServerError)
 // 			}
-// 
+//
 // 			if len(conditions) > 0 {
 // 				isuLastCondition := conditions[0]
 // 				conditionLevel, err := calculateConditionLevel(isuLastCondition.Condition)
@@ -1338,9 +1335,9 @@ func getTrend(c echo.Context) error {
 // 					characterCriticalIsuConditions = append(characterCriticalIsuConditions, &trendCondition)
 // 				}
 // 			}
-// 
+//
 // 		}
-// 
+//
 // 		sort.Slice(characterInfoIsuConditions, func(i, j int) bool {
 // 			return characterInfoIsuConditions[i].Timestamp > characterInfoIsuConditions[j].Timestamp
 // 		})
@@ -1358,7 +1355,7 @@ func getTrend(c echo.Context) error {
 // 				Critical:  characterCriticalIsuConditions,
 // 			})
 // 	}
-// 
+//
 // 	c.Logger().Errorf("%v", res)
 // 	return c.JSON(http.StatusOK, res)
 // }
